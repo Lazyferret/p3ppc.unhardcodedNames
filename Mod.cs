@@ -51,8 +51,10 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private Memory _memory;
 
     private IHook<GetItemNameDelegate> _getItemNameHook;
+    private IHook<GetPersonaNameDelegate> _getPersonaNameHook;
 
-    private Dictionary<int, nuint[]> _names = new();
+    private Dictionary<int, nuint[]> _itemNames = new();
+    private Dictionary<int, nuint[]> _personaNames = new();
     private Language* _language;
 
     public Mod(ModContext context)
@@ -73,6 +75,13 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             var funcAddress = Utils.GetGlobalAddress(address + 1);
             Utils.LogDebug($"Found GetItemName function at 0x{funcAddress:X}");
             _getItemNameHook = _hooks.CreateHook<GetItemNameDelegate>(GetItemName, (long)funcAddress).Activate();
+        });
+
+        Utils.SigScan("E9 ?? ?? ?? ?? 33 C0 48 83 C4 20 5B C3 8B 05 ?? ?? ?? ??", "GetPersonaName Ptr", address =>
+        {
+            var funcAddress = Utils.GetGlobalAddress(address + 1);
+            Utils.LogDebug($"Found GetPersonaName function at 0x{funcAddress:X}");
+            _getPersonaNameHook = _hooks.CreateHook<GetPersonaNameDelegate>(GetPersonaName, (long)funcAddress).Activate();
         });
 
         Utils.SigScan("48 63 05 ?? ?? ?? ?? 0F 57 F6", "LanguagePtr", address =>
@@ -96,7 +105,13 @@ public unsafe class Mod : ModBase // <= Do not Remove.
 
     private void AddNamesFromDir(string dir)
     {
-        var namesPath = Path.Combine(dir, "ItemNames.json");
+        AddNamesFromDir(dir, ref _itemNames, "ItemNames.json");
+        AddNamesFromDir(dir, ref _personaNames, "PersonaNames.json");
+    }
+
+    private void AddNamesFromDir(string dir, ref Dictionary<int, nuint[]> namesDict, string nameFile)
+    {
+        var namesPath = Path.Combine(dir, nameFile);
         if (!File.Exists(namesPath)) return;
 
         var json = File.ReadAllText(namesPath);
@@ -112,8 +127,8 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             var id = name.Id;
             var languages = Enum.GetNames(typeof(Language));
 
-            if(!_names.ContainsKey(id))
-                _names[id] = new nuint[languages.Length];
+            if(!namesDict.ContainsKey(id))
+                namesDict[id] = new nuint[languages.Length];
 
             for (int i = 0; i < languages.Length; i++)
             {
@@ -122,7 +137,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
                 {
                     var bytes = Encoding.ASCII.GetBytes((string)langName);
                     var address = _memory.Allocate((nuint)bytes.Length).Address;
-                    _names[id][i] = address;
+                    namesDict[id][i] = address;
                     _memory.WriteRaw(address, bytes);
                 }
             }
@@ -131,7 +146,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
 
     private nuint GetItemName(short item)
     {
-        if (!_names.TryGetValue(item, out var name))
+        if (!_itemNames.TryGetValue(item, out var name))
         {
             return _getItemNameHook.OriginalFunction(item);
         }
@@ -143,8 +158,25 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         return langName;
     }
 
+    private nuint GetPersonaName(short persona)
+    {
+        if (!_personaNames.TryGetValue(persona, out var name))
+        {
+            return _getPersonaNameHook.OriginalFunction(persona);
+        }
+
+        var langName = name[(int)*_language];
+        if (langName == nuint.Zero)
+            return _getPersonaNameHook.OriginalFunction(persona);
+
+        return langName;
+    }
+
     [Function(CallingConventions.Microsoft)]
     private delegate nuint GetItemNameDelegate(short item);
+
+    [Function(CallingConventions.Microsoft)]
+    private delegate nuint GetPersonaNameDelegate(short persona);
 
     private enum Language : int
     {
