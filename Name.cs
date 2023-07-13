@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace p3ppc.unhardcodedNames;
-public class Name
+public class Name : IName
 {
     public int Id { get; set; }
     public string Japanese { get; set; }
