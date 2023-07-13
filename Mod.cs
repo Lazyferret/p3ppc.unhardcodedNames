@@ -1,12 +1,14 @@
 ﻿using p3ppc.unhardcodedNames.Configuration;
 using p3ppc.unhardcodedNames.Template;
 using Reloaded.Hooks.Definitions;
+using Reloaded.Hooks.Definitions.Enums;
 using Reloaded.Hooks.Definitions.X64;
 using Reloaded.Hooks.ReloadedII.Interfaces;
 using Reloaded.Memory;
 using Reloaded.Mod.Interfaces;
 using Reloaded.Mod.Interfaces.Internal;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using IReloadedHooks = Reloaded.Hooks.ReloadedII.Interfaces.IReloadedHooks;
@@ -56,6 +58,10 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private IHook<GetNameDelegate> _getCharacterFirstNameHook;
     private IHook<GetNameDelegate> _getSLinkNameHook;
     private IHook<GetTextDelegate> _getTextHook;
+    private IHook<GetEnemyNameDelegate> _getEnemyNameHook;
+
+    private IAsmHook _analysisEnemyNameHook;
+    private IReverseWrapper<GetNameDelegate> _getEnemyNameReverseWrapper;
 
     private Dictionary<int, nuint[]> _itemNames = new();
     private Dictionary<int, nuint[]> _personaNames = new();
@@ -64,6 +70,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private Dictionary<int, nuint[]> _characterLastNames = new();
     private Dictionary<int, nuint[]> _sLinkNames = new();
     private Dictionary<int, nuint[]> _arcanaNames = new();
+    private Dictionary<int, nuint[]> _enemyNames = new();
     private Language* _language;
 
     public Mod(ModContext context)
@@ -120,6 +127,34 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             _getSLinkNameHook = _hooks.CreateHook<GetNameDelegate>(GetSLinkName, address).Activate();
         });
 
+        Utils.SigScan("40 53 48 83 EC 20 48 89 CB 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 0F B6 8B ?? ?? ?? ??", "GetEnemyName", address =>
+        {
+            _getEnemyNameHook = _hooks.CreateHook<GetEnemyNameDelegate>(GetEnemyName, address).Activate();
+        });
+
+        Utils.SigScan("C7 44 24 ?? 00 00 00 00 41 B9 FF FF DF 69", "AnalysisGetEnemyName", address =>
+        {
+            string[] function =
+            {
+                "use64",
+                "push rax \npush rcx",
+                "mov rcx, r12", // Put enemy id into arg 1
+                "sub rsp, 32",
+                $"{_hooks.Utilities.GetAbsoluteCallMnemonics(AnalysisGetEnemyName, out _getEnemyNameReverseWrapper)}",
+                "add rsp, 32",
+                "pop rcx",
+                "cmp rax, 0", 
+                "je noChange",
+                "add rsp, 8", // "pop" rax without actually putting it anywhere
+                "jmp endHook",
+                "label noChange",
+                "pop rax",
+                "label endHook",
+            };
+
+            _analysisEnemyNameHook = _hooks.CreateAsmHook(function, address, AsmHookBehaviour.ExecuteFirst).Activate();
+        });
+
         Utils.SigScan("E8 ?? ?? ?? ?? F3 44 0F 10 3D ?? ?? ?? ?? F3 41 0F 5C F5", "GetHardcodedText Ptr", address =>
         {
             var funcAddress = Utils.GetGlobalAddress(address + 1);
@@ -152,6 +187,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         AddNamesFromDir<Name>(dir, _personaNames, "PersonaNames.json", WriteGenericName);
         AddNamesFromDir<Name>(dir, _sLinkNames, "SLinkNames.json", WriteGenericName);
         AddNamesFromDir<Name>(dir, _arcanaNames, "ArcanaNames.json", WriteGenericName);
+        AddNamesFromDir<Name>(dir, _enemyNames, "EnemyNames.json", WriteGenericName);
         AddNamesFromDir<CharacterName>(dir, _characterFullNames, "CharacterNames.json", WriteCharacterName);
     }
 
@@ -316,9 +352,40 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         return langName;
     }
 
+    private nuint GetEnemyName(EnemyInfo* info)
+    {
+        var id = info->Id;
+        if (!_enemyNames.TryGetValue(id, out var name))
+        {
+            return _getEnemyNameHook.OriginalFunction(info);
+        }
+
+        var langName = name[(int)*_language];
+        if (langName == nuint.Zero)
+            return _getEnemyNameHook.OriginalFunction(info);
+
+        return langName;
+    }
+
+    private nuint AnalysisGetEnemyName(short id)
+    {
+        if (!_enemyNames.TryGetValue(id, out var name))
+        {
+            return 0;
+        }
+
+        var langName = name[(int)*_language];
+        if (langName == nuint.Zero)
+            return 0;
+
+        return langName;
+    }
 
     [Function(CallingConventions.Microsoft)]
     private delegate nuint GetNameDelegate(short id);
+
+    [Function(CallingConventions.Microsoft)]
+    private delegate nuint GetEnemyNameDelegate(EnemyInfo* info);
 
     [Function(CallingConventions.Microsoft)]
     private delegate nuint GetTextDelegate(NameType type, short id);
@@ -339,6 +406,13 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         German,
         Italian,
         Spanish
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct EnemyInfo
+    {
+        [FieldOffset(164)]
+        internal short Id;
     }
 
     #region Standard Overrides
