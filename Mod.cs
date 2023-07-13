@@ -54,12 +54,14 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private IHook<GetNameDelegate> _getPersonaNameHook;
     private IHook<GetNameDelegate> _getCharacterFullNameHook;
     private IHook<GetNameDelegate> _getCharacterFirstNameHook;
+    private IHook<GetNameDelegate> _getSLinkNameHook;
 
     private Dictionary<int, nuint[]> _itemNames = new();
     private Dictionary<int, nuint[]> _personaNames = new();
     private Dictionary<int, nuint[]> _characterFullNames = new();
     private Dictionary<int, nuint[]> _characterFirstNames = new();
     private Dictionary<int, nuint[]> _characterLastNames = new();
+    private Dictionary<int, nuint[]> _sLinkNames = new();
     private Language* _language;
 
     public Mod(ModContext context)
@@ -111,6 +113,11 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         //    _getCharacterLastNameHook = _hooks.CreateHook<GetNameDelegate>(GetCharacterLastName, (long)funcAddress).Activate();
         //});
 
+        Utils.SigScan("48 89 5C 24 ?? 57 48 83 EC 20 0F B7 D9 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 3D ?? ?? ?? ?? 3B 5F ?? 72 ?? 8B 15 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? 83 C2 02 E8 ?? ?? ?? ?? C1 E3 06 48 83 C7 08 89 D8", "GetSLinkName", address =>
+        {
+            _getSLinkNameHook = _hooks.CreateHook<GetNameDelegate>(GetSLinkName, address).Activate();
+        });
+
         Utils.SigScan("48 63 05 ?? ?? ?? ?? 0F 57 F6", "LanguagePtr", address =>
         {
             var languageAddress = Utils.GetGlobalAddress(address + 3);
@@ -134,6 +141,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     {
         AddNamesFromDir<Name>(dir, _itemNames, "ItemNames.json", WriteGenericName);
         AddNamesFromDir<Name>(dir, _personaNames, "PersonaNames.json", WriteGenericName);
+        AddNamesFromDir<Name>(dir, _sLinkNames, "SLinkNames.json", WriteGenericName);
         AddNamesFromDir<CharacterName>(dir, _characterFullNames, "CharacterNames.json", WriteCharacterName);
     }
 
@@ -266,6 +274,20 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         var langName = name[(int)*_language];
         if (langName == nuint.Zero)
             return _getCharacterFirstNameHook.OriginalFunction(character);
+
+        return langName;
+    }
+
+    private nuint GetSLinkName(short sLink)
+    {
+        if (!_sLinkNames.TryGetValue(sLink, out var name))
+        {
+            return _getSLinkNameHook.OriginalFunction(sLink);
+        }
+
+        var langName = name[(int)*_language];
+        if (langName == nuint.Zero)
+            return _getSLinkNameHook.OriginalFunction(sLink);
 
         return langName;
     }
