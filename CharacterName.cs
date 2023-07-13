@@ -5,9 +5,10 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace p3ppc.unhardcodedNames;
-internal class CharacterName : IName
+internal class CharacterName : IName<NameParts?>
 {
     public int Id { get; set; }
+    public NameParts? All { get; set; }
     public NameParts? Japanese { get; set; }
     public NameParts? English { get; set; }
     public NameParts? Korean { get; set; }

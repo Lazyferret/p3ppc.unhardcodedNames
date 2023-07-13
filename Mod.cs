@@ -240,23 +240,23 @@ public unsafe class Mod : ModBase // <= Do not Remove.
 
     private void AddNamesFromDir(string dir)
     {
-        AddNamesFromDir<Name>(dir, _itemNames, "ItemNames.json", WriteGenericName);
-        AddNamesFromDir<Name>(dir, _personaNames, "PersonaNames.json", WriteGenericName);
-        AddNamesFromDir<Name>(dir, _sLinkNames, "SLinkNames.json", WriteGenericName);
-        AddNamesFromDir<Name>(dir, _arcanaNames, "ArcanaNames.json", WriteGenericName);
-        AddNamesFromDir<Name>(dir, _enemyNames, "EnemyNames.json", WriteGenericName);
-        AddNamesFromDir<Name>(dir, _skillNames, "SkillNames.json", WriteGenericName);
-        AddNamesFromDir<CharacterName>(dir, _characterFullNames, "CharacterNames.json", WriteCharacterName);
+        AddNamesFromDir<Name,string?>(dir, _itemNames, "ItemNames.json", WriteGenericName);
+        AddNamesFromDir<Name,string?>(dir, _personaNames, "PersonaNames.json", WriteGenericName);
+        AddNamesFromDir<Name,string?>(dir, _sLinkNames, "SLinkNames.json", WriteGenericName);
+        AddNamesFromDir<Name,string?>(dir, _arcanaNames, "ArcanaNames.json", WriteGenericName);
+        AddNamesFromDir<Name,string?>(dir, _enemyNames, "EnemyNames.json", WriteGenericName);
+        AddNamesFromDir<Name,string?>(dir, _skillNames, "SkillNames.json", WriteGenericName);
+        AddNamesFromDir<CharacterName,NameParts?>(dir, _characterFullNames, "CharacterNames.json", WriteCharacterName);
     }
 
-    private void AddNamesFromDir<T>(string dir, Dictionary<int, nuint[]> namesDict, string nameFile, Action<object, Dictionary<int, nuint[]>, int, int> WriteName)
-        where T : IName
+    private void AddNamesFromDir<T1,T2>(string dir, Dictionary<int, nuint[]> namesDict, string nameFile, Action<object, Dictionary<int, nuint[]>, int, int> WriteName)
+        where T1 : IName<T2>
     {
         var namesPath = Path.Combine(dir, nameFile);
         if (!File.Exists(namesPath)) return;
 
         var json = File.ReadAllText(namesPath);
-        var names = JsonSerializer.Deserialize<List<T>>(json);
+        var names = JsonSerializer.Deserialize<List<T1>>(json);
         if (names == null)
         {
             Utils.LogError($"Error parsing names from {namesPath}");
@@ -274,6 +274,8 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             for (int i = 0; i < languages.Length; i++)
             {
                 var langName = name.GetType().GetProperty(languages[i]).GetValue(name);
+                if (langName == null && name.All != null)
+                    langName = name.All;
                 if (langName != null)
                 {
                     WriteName(langName, namesDict, id, i);
