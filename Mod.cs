@@ -53,30 +53,15 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private Memory _memory;
 
     private IHook<GetNameDelegate> _getItemNameHook;
-    private IHook<GetNameDelegate> _getPersonaNameHook;
     private IHook<GetNameDelegate> _getCharacterFullNameHook;
     private IHook<GetNameDelegate> _getCharacterFirstNameHook;
     private IHook<GetNameDelegate> _getSLinkNameHook;
-    private IHook<GetNameDelegate> _getSkillNameHook;
-    private IHook<GetTextDelegate> _getTextHook;
-    private IHook<GetEnemyNameDelegate> _getEnemyNameHook;
-
-    private IAsmHook _analysisEnemyNameHook;
-    private IReverseWrapper<GetNameDelegate> _getEnemyNameReverseWrapper;
-
-    private IAsmHook _battleSkillSelectionNameHook;
-    private IAsmHook _battleSkillPopupNameHook;
-    private IReverseWrapper<GetNameDelegate> _getSkillNameReverseWrapper;
 
     private Dictionary<int, nuint[]> _itemNames = new();
-    private Dictionary<int, nuint[]> _personaNames = new();
     private Dictionary<int, nuint[]> _characterFullNames = new();
     private Dictionary<int, nuint[]> _characterFirstNames = new();
     private Dictionary<int, nuint[]> _characterLastNames = new();
     private Dictionary<int, nuint[]> _sLinkNames = new();
-    private Dictionary<int, nuint[]> _arcanaNames = new();
-    private Dictionary<int, nuint[]> _enemyNames = new();
-    private Dictionary<int, nuint[]> _skillNames = new();
     private Language* _language;
 
     public Mod(ModContext context)
@@ -97,13 +82,6 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             var funcAddress = Utils.GetGlobalAddress(address + 1);
             Utils.LogDebug($"Found GetItemName function at 0x{funcAddress:X}");
             _getItemNameHook = _hooks.CreateHook<GetNameDelegate>(GetItemName, (long)funcAddress).Activate();
-        });
-
-        Utils.SigScan("E9 ?? ?? ?? ?? 33 C0 48 83 C4 20 5B C3 8B 05 ?? ?? ?? ??", "GetPersonaName Ptr", address =>
-        {
-            var funcAddress = Utils.GetGlobalAddress(address + 1);
-            Utils.LogDebug($"Found GetPersonaName function at 0x{funcAddress:X}");
-            _getPersonaNameHook = _hooks.CreateHook<GetNameDelegate>(GetPersonaName, (long)funcAddress).Activate();
         });
 
         Utils.SigScan("E8 ?? ?? ?? ?? F3 0F 10 0D ?? ?? ?? ?? 8B CF", "GetCharacterFullName Ptr", address =>
@@ -128,95 +106,9 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         //    _getCharacterLastNameHook = _hooks.CreateHook<GetNameDelegate>(GetCharacterLastName, (long)funcAddress).Activate();
         //});
 
-        Utils.SigScan("E8 ?? ?? ?? ?? C7 44 24 ?? 00 00 00 00 F3 41 0F 58 F0", "GetSkillName Ptr", address =>
-        {
-            var funcAddress = Utils.GetGlobalAddress(address + 1);
-            Utils.LogDebug($"Found GetSkillName function at 0x{funcAddress:X}");
-            _getSkillNameHook = _hooks.CreateHook<GetNameDelegate>(GetSkillName, (long)funcAddress).Activate();
-        });
-
         Utils.SigScan("48 89 5C 24 ?? 57 48 83 EC 20 0F B7 D9 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 3D ?? ?? ?? ?? 3B 5F ?? 72 ?? 8B 15 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? 83 C2 02 E8 ?? ?? ?? ?? C1 E3 06 48 83 C7 08 89 D8", "GetSLinkName", address =>
         {
             _getSLinkNameHook = _hooks.CreateHook<GetNameDelegate>(GetSLinkName, address).Activate();
-        });
-
-        Utils.SigScan("40 53 48 83 EC 20 48 89 CB 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 0F B6 8B ?? ?? ?? ??", "GetEnemyName", address =>
-        {
-            _getEnemyNameHook = _hooks.CreateHook<GetEnemyNameDelegate>(GetEnemyName, address).Activate();
-        });
-
-        Utils.SigScan("C7 44 24 ?? 00 00 00 00 41 B9 FF FF DF 69", "AnalysisGetEnemyName", address =>
-        {
-            string[] function =
-            {
-                "use64",
-                "push rax \npush rcx",
-                "mov rcx, r12", // Put enemy id into arg 1
-                "sub rsp, 32",
-                $"{_hooks.Utilities.GetAbsoluteCallMnemonics(AnalysisGetEnemyName, out _getEnemyNameReverseWrapper)}",
-                "add rsp, 32",
-                "pop rcx",
-                "cmp rax, 0", 
-                "je noChange",
-                "add rsp, 8", // "pop" rax without actually putting it anywhere
-                "jmp endHook",
-                "label noChange",
-                "pop rax",
-                "label endHook",
-            };
-
-            _analysisEnemyNameHook = _hooks.CreateAsmHook(function, address, AsmHookBehaviour.ExecuteFirst).Activate();
-        });
-
-        var battleGetSkillName = _hooks.Utilities.GetAbsoluteCallMnemonics(BattleGetSkillName, out _getSkillNameReverseWrapper);
-
-        Utils.SigScan("F3 44 0F 10 15 ?? ?? ?? ?? 33 C0", "BattleSkillSelectionName", address =>
-        {
-            string[] function =
-            {
-                "use64",
-                "push rax \npush rcx",
-                "mov rcx, rdi", // Put skill id into first arg
-                "sub rsp, 32",
-                $"{battleGetSkillName}",
-                "add rsp, 32",
-                "pop rcx",
-                "cmp rax, 0",
-                "je endHook",
-                "mov rcx, rax",
-                "label endHook",
-                "pop rax",
-            };
-
-            _battleSkillSelectionNameHook = _hooks.CreateAsmHook(function, address, AsmHookBehaviour.ExecuteFirst).Activate();
-        });
-
-        Utils.SigScan("E8 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? 48 8B 89 ?? ?? ?? ?? E8 ?? ?? ?? ?? E8 ?? ?? ?? ?? F3 0F 59 05 ?? ?? ?? ?? F3 0F 58 43 ?? 0F 2F 05 ?? ?? ?? ?? F3 0F 11 43 ?? 73 ?? 31 C0", "BattleSkillPopupName", address =>
-        {
-            string[] function =
-            {
-                "use64",
-                "push rcx \npush rdx",
-                "mov rcx, rax", // Put skill id into first arg
-                "sub rsp, 32",
-                $"{battleGetSkillName}",
-                "add rsp, 32",
-                "pop rdx \npop rcx",
-                "cmp rax, 0",
-                "je endHook",
-                "mov rdx, rax",
-                "label endHook",
-            };
-
-            _battleSkillPopupNameHook = _hooks.CreateAsmHook(function, address, AsmHookBehaviour.ExecuteFirst).Activate();
-        });
-
-
-        Utils.SigScan("E8 ?? ?? ?? ?? F3 44 0F 10 3D ?? ?? ?? ?? F3 41 0F 5C F5", "GetHardcodedText Ptr", address =>
-        {
-            var funcAddress = Utils.GetGlobalAddress(address + 1);
-            Utils.LogDebug($"Found GetHardcodedText function at 0x{funcAddress:X}");
-            _getTextHook = _hooks.CreateHook<GetTextDelegate>(GetText, (long)funcAddress).Activate();
         });
 
         Utils.SigScan("48 63 05 ?? ?? ?? ?? 0F 57 F6", "LanguagePtr", address =>
@@ -241,11 +133,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private void AddNamesFromDir(string dir)
     {
         AddNamesFromDir<Name,string?>(dir, _itemNames, "ItemNames.json", WriteGenericName);
-        AddNamesFromDir<Name,string?>(dir, _personaNames, "PersonaNames.json", WriteGenericName);
         AddNamesFromDir<Name,string?>(dir, _sLinkNames, "SLinkNames.json", WriteGenericName);
-        AddNamesFromDir<Name,string?>(dir, _arcanaNames, "ArcanaNames.json", WriteGenericName);
-        AddNamesFromDir<Name,string?>(dir, _enemyNames, "EnemyNames.json", WriteGenericName);
-        AddNamesFromDir<Name,string?>(dir, _skillNames, "SkillNames.json", WriteGenericName);
         AddNamesFromDir<CharacterName,NameParts?>(dir, _characterFullNames, "CharacterNames.json", WriteCharacterName);
     }
 
@@ -342,20 +230,6 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         return langName;
     }
 
-    private nuint GetPersonaName(short persona)
-    {
-        if (!_personaNames.TryGetValue(persona, out var name))
-        {
-            return _getPersonaNameHook.OriginalFunction(persona);
-        }
-
-        var langName = name[(int)*_language];
-        if (langName == nuint.Zero)
-            return _getPersonaNameHook.OriginalFunction(persona);
-
-        return langName;
-    }
-
     private nuint GetCharacterFullName(short character)
     {
         if (!_characterFullNames.TryGetValue(character, out var name))
@@ -398,91 +272,8 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         return langName;
     }
 
-    private nuint GetSkillName(short id)
-    {
-        if (!_skillNames.TryGetValue(id, out var name))
-        {
-            return _getSkillNameHook.OriginalFunction(id);
-        }
-
-        var langName = name[(int)*_language];
-        if (langName == nuint.Zero)
-            return _getSkillNameHook.OriginalFunction(id);
-
-        return langName;
-    }
-
-    private nuint GetText(NameType type, short id)
-    {
-        if (type != NameType.Arcana || !_arcanaNames.TryGetValue(id, out var name))
-        {
-            return _getTextHook.OriginalFunction(type, id);
-        }
-
-        var langName = name[(int)*_language];
-        if (langName == nuint.Zero)
-            return _getTextHook.OriginalFunction(type, id);
-
-        return langName;
-    }
-
-    private nuint GetEnemyName(EnemyInfo* info)
-    {
-        var id = info->Id;
-        if (!_enemyNames.TryGetValue(id, out var name))
-        {
-            return _getEnemyNameHook.OriginalFunction(info);
-        }
-
-        var langName = name[(int)*_language];
-        if (langName == nuint.Zero)
-            return _getEnemyNameHook.OriginalFunction(info);
-
-        return langName;
-    }
-
-    private nuint AnalysisGetEnemyName(short id)
-    {
-        if (!_enemyNames.TryGetValue(id, out var name))
-        {
-            return 0;
-        }
-
-        var langName = name[(int)*_language];
-        if (langName == nuint.Zero)
-            return 0;
-
-        return langName;
-    }
-
-    private nuint BattleGetSkillName(short id)
-    {
-        if (!_skillNames.TryGetValue(id, out var name))
-        {
-            return 0;
-        }
-
-        var langName = name[(int)*_language];
-        if (langName == nuint.Zero)
-            return 0;
-
-        return langName;
-    }
-
-
     [Function(CallingConventions.Microsoft)]
     private delegate nuint GetNameDelegate(short id);
-
-    [Function(CallingConventions.Microsoft)]
-    private delegate nuint GetEnemyNameDelegate(EnemyInfo* info);
-
-    [Function(CallingConventions.Microsoft)]
-    private delegate nuint GetTextDelegate(NameType type, short id);
-
-    private enum NameType : int
-    {
-        Arcana = 9,
-    }
 
     private enum Language : int
     {
@@ -495,13 +286,6 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         German,
         Italian,
         Spanish
-    }
-
-    [StructLayout(LayoutKind.Explicit)]
-    private struct EnemyInfo
-    {
-        [FieldOffset(164)]
-        internal short Id;
     }
 
     #region Standard Overrides
