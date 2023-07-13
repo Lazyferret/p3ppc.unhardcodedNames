@@ -196,12 +196,12 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             string[] function =
             {
                 "use64",
-                "push rcx",
+                "push rcx \npush rdx",
                 "mov rcx, rax", // Put skill id into first arg
-                "sub rsp, 40",
+                "sub rsp, 32",
                 $"{battleGetSkillName}",
-                "add rsp, 40",
-                "pop rcx",
+                "add rsp, 32",
+                "pop rdx \npop rcx",
                 "cmp rax, 0",
                 "je endHook",
                 "mov rdx, rax",
