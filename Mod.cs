@@ -56,13 +56,35 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private IHook<GetNameDelegate> _getCharacterFullNameHook;
     private IHook<GetNameDelegate> _getCharacterFirstNameHook;
     private IHook<GetNameDelegate> _getSLinkNameHook;
+    private IHook<GetTextDelegate> _getTextHook;
 
     private Dictionary<int, nuint[]> _itemNames = new();
     private Dictionary<int, nuint[]> _characterFullNames = new();
     private Dictionary<int, nuint[]> _characterFirstNames = new();
     private Dictionary<int, nuint[]> _characterLastNames = new();
     private Dictionary<int, nuint[]> _sLinkNames = new();
+    private Dictionary<int, nuint[]> _hardcodedText = new();
     private Language* _language;
+
+    private Dictionary<Language, Encoding> _encodings;
+
+    private void SetupEncodings()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        _encodings = new()
+        {
+            { Language.English, Encoding.UTF8 },
+            { Language.French, Encoding.UTF8 },
+            { Language.German, Encoding.UTF8 },
+            { Language.Italian, Encoding.UTF8 },
+            { Language.Japanese, Encoding.Unicode },
+            { Language.Korean, Encoding.Unicode },
+            { Language.SimplifiedChinese, Encoding.Unicode },
+            { Language.TraditionalChinese, Encoding.Unicode },
+            { Language.Spanish, Encoding.UTF8 },
+        };
+    }
+
 
     public Mod(ModContext context)
     {
@@ -76,6 +98,8 @@ public unsafe class Mod : ModBase // <= Do not Remove.
 
         if (!Utils.Initialise(_logger, _configuration, _modLoader))
             return;
+
+        SetupEncodings();
 
         Utils.SigScan("E8 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8B C8 0F B6 84 ?? ?? ?? ?? ??", "GetItemName Ptr", address =>
         {
@@ -118,6 +142,23 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             _language = (Language*)languageAddress;
         });
 
+        Utils.SigScan("48 89 5C 24 ?? 57 48 83 EC 20 8B D9 8B FA 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 63 05 ?? ?? ?? ??", "HardcodedText", address =>
+        {
+            _getTextHook = _hooks.CreateHook<GetTextDelegate>(GetText, address).Activate();
+
+            // Dump text
+            //nuint** text = (nuint**)Utils.GetGlobalAddress(address + 44);
+            //for(int i = 0; i < 142; i++)
+            //{
+            //    byte* ptr = (byte*)text[(int)Language.English][i];
+            //    int count = 0;
+            //    while (*(ptr + count) != 0)
+            //        count++;
+            //    var textStr = Encoding.ASCII.GetString(ptr, count);
+            //    Utils.Log($"{i} = \"{textStr}\"");
+            //}            
+        });
+
         _modLoader.ModLoading += OnModLoading;
 
         foreach (var mod in _modLoader.GetActiveMods().Where(x => x.Generic.ModDependencies.Contains(_modConfig.ModIcon)))
@@ -130,14 +171,20 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             AddNamesFromDir(_modLoader.GetDirectoryForModId(config.ModId));
     }
 
-    private void AddNamesFromDir(string dir)
+    private void DumpText()
     {
-        AddNamesFromDir<Name,string?>(dir, _itemNames, "ItemNames.json", WriteGenericName);
-        AddNamesFromDir<Name,string?>(dir, _sLinkNames, "SLinkNames.json", WriteGenericName);
-        AddNamesFromDir<CharacterName,NameParts?>(dir, _characterFullNames, "CharacterNames.json", WriteCharacterName);
+
     }
 
-    private void AddNamesFromDir<T1,T2>(string dir, Dictionary<int, nuint[]> namesDict, string nameFile, Action<object, Dictionary<int, nuint[]>, int, int> WriteName)
+    private void AddNamesFromDir(string dir)
+    {
+        AddNamesFromDir<Name, string?>(dir, _itemNames, "ItemNames.json", WriteGenericName);
+        AddNamesFromDir<Name, string?>(dir, _sLinkNames, "SLinkNames.json", WriteGenericName);
+        AddNamesFromDir<CharacterName, NameParts?>(dir, _characterFullNames, "CharacterNames.json", WriteCharacterName);
+        AddNamesFromDir<Name, string?>(dir, _hardcodedText, "Text.json", WriteGenericName);
+    }
+
+    private void AddNamesFromDir<T1, T2>(string dir, Dictionary<int, nuint[]> namesDict, string nameFile, Action<object, Dictionary<int, nuint[]>, int, int> WriteName)
         where T1 : IName<T2>
     {
         var namesPath = Path.Combine(dir, nameFile);
@@ -174,7 +221,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
 
     private void WriteGenericName(object langName, Dictionary<int, nuint[]> namesDict, int id, int lang)
     {
-        var address = WriteString((string)langName);
+        var address = WriteString((string)langName, (Language)lang);
         namesDict[id][lang] = address;
     }
 
@@ -186,7 +233,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             if (!_characterFirstNames.ContainsKey(id))
                 _characterFirstNames[id] = new nuint[9];
 
-            var address = WriteString(name.First);
+            var address = WriteString(name.First, (Language)lang);
             _characterFirstNames[id][lang] = address;
         }
 
@@ -195,22 +242,22 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             if (!_characterLastNames.ContainsKey(id))
                 _characterLastNames[id] = new nuint[9];
 
-            var address = WriteString(name.Last);
+            var address = WriteString(name.Last, (Language)lang);
             _characterLastNames[id][lang] = address;
         }
 
         var fullName = name.Full;
-        if(fullName == null)
+        if (fullName == null)
             fullName = $"{(name.First == null ? "" : name.First)} {(name.Last == null ? "" : name.Last)}";
 
-        var fullAddress = WriteString(fullName);
+        var fullAddress = WriteString(fullName, (Language)lang);
         _characterFullNames[id][lang] = fullAddress;
 
     }
 
-    private nuint WriteString(string text)
+    private nuint WriteString(string text, Language language)
     {
-        var bytes = Encoding.ASCII.GetBytes(text);
+        var bytes = _encodings[language].GetBytes(text);
         var address = _memory.Allocate((nuint)bytes.Length).Address;
         _memory.WriteRaw(address, bytes);
         return address;
@@ -272,8 +319,26 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         return langName;
     }
 
+    private nuint GetText(int major, int minor)
+    {
+        int id = major + minor;
+        if (!_hardcodedText.TryGetValue(id, out var text))
+        {
+            return _getTextHook.OriginalFunction(major, minor);
+        }
+
+        var langText = text[(int)*_language];
+        if (langText == nuint.Zero)
+            return _getTextHook.OriginalFunction(major, minor);
+
+        return langText;
+    }
+
     [Function(CallingConventions.Microsoft)]
     private delegate nuint GetNameDelegate(short id);
+
+    [Function(CallingConventions.Microsoft)]
+    private delegate nuint GetTextDelegate(int major, int minor);
 
     private enum Language : int
     {
