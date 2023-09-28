@@ -8,6 +8,7 @@ using Reloaded.Memory;
 using Reloaded.Mod.Interfaces;
 using Reloaded.Mod.Interfaces.Internal;
 using System.Diagnostics;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -57,6 +58,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private IHook<GetNameDelegate> _getCharacterFirstNameHook;
     private IHook<GetNameDelegate> _getSLinkNameHook;
     private IHook<GetTextDelegate> _getTextHook;
+    private IHook<GetTextDelegate> _getGlossaryTextHook;
 
     private Dictionary<int, nuint[]> _itemNames = new();
     private Dictionary<int, nuint[]> _characterFullNames = new();
@@ -64,6 +66,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private Dictionary<int, nuint[]> _characterLastNames = new();
     private Dictionary<int, nuint[]> _sLinkNames = new();
     private Dictionary<int, nuint[]> _hardcodedText = new();
+    private Dictionary<int, nuint[]> _glossaryText = new();
     private Language* _language;
 
     private Dictionary<Language, Encoding> _encodings;
@@ -159,6 +162,24 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             //}            
         });
 
+        Utils.SigScan("48 89 5C 24 ?? 57 48 83 EC 20 48 63 F9 48 8D 0D ?? ?? ?? ?? 48 63 DA E8 ?? ?? ?? ?? 48 63 05 ?? ?? ?? ??", "GetGlossaryText", address =>
+        {
+            _getGlossaryTextHook = _hooks.CreateHook<GetTextDelegate>(GetGlossaryText, address).Activate();
+
+            //Dump text
+            //nuint* text = (nuint*)Utils.GetGlobalAddress(address + 76); // Couldn't get it working, just hardcode, who cares...
+            //nuint* text = (nuint*)0x14079c930;
+            //for (int i = 0; i < 349; i++)
+            //{
+            //    byte* ptr = (byte*)text[i];
+            //    int count = 0;
+            //    while (*(ptr + count) != 0)
+            //        count++;
+            //    var textStr = Encoding.ASCII.GetString(ptr, count);
+            //    Utils.Log($"{i} = \"{textStr}\"");
+            //}
+        });
+
         _modLoader.ModLoading += OnModLoading;
 
         foreach (var mod in _modLoader.GetActiveMods().Where(x => x.Generic.ModDependencies.Contains(_modConfig.ModIcon)))
@@ -182,6 +203,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         AddNamesFromDir<Name, string?>(dir, _sLinkNames, "SLinkNames.json", WriteGenericName);
         AddNamesFromDir<CharacterName, NameParts?>(dir, _characterFullNames, "CharacterNames.json", WriteCharacterName);
         AddNamesFromDir<Name, string?>(dir, _hardcodedText, "Text.json", WriteGenericName);
+        AddNamesFromDir<Name, string?>(dir, _glossaryText, "Glossary.json", WriteGenericName);
     }
 
     private void AddNamesFromDir<T1, T2>(string dir, Dictionary<int, nuint[]> namesDict, string nameFile, Action<object, Dictionary<int, nuint[]>, int, int> WriteName)
@@ -330,6 +352,21 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         var langText = text[(int)*_language];
         if (langText == nuint.Zero)
             return _getTextHook.OriginalFunction(major, minor);
+
+        return langText;
+    }
+
+    private nuint GetGlossaryText(int major, int minor)
+    {
+        int id = major + minor;
+        if (!_glossaryText.TryGetValue(id, out var text))
+        {
+            return _getGlossaryTextHook.OriginalFunction(major, minor);
+        }
+
+        var langText = text[(int)*_language];
+        if (langText == nuint.Zero)
+            return _getGlossaryTextHook.OriginalFunction(major, minor);
 
         return langText;
     }
