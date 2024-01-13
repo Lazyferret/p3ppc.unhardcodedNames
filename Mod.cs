@@ -13,6 +13,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using IReloadedHooks = Reloaded.Hooks.ReloadedII.Interfaces.IReloadedHooks;
+using System.Collections.Generic;
 
 namespace p3ppc.unhardcodedNames;
 /// <summary>
@@ -50,7 +51,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     /// The configuration of the currently executing mod.
     /// </summary>
     private readonly IModConfig _modConfig;
-
+    
     private Memory _memory;
 
     private IHook<GetNameDelegate> _getItemNameHook;
@@ -70,7 +71,30 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     private Language* _language;
 
     private Dictionary<Language, Encoding> _encodings;
+    static byte[] HexStringToByteArray(string hexString)
+    {
+        hexString = hexString.Replace("\\x", ""); // Removing "\x" from the string
+        int length = hexString.Length / 2;
+        byte[] byteArray = new byte[length];
 
+        for (int i = 0; i < length; i++)
+        {
+            byteArray[i] = Convert.ToByte(hexString.Substring(i * 2, 2), 16);
+        }
+
+        return byteArray;
+    }
+    static Dictionary<string, byte[]> DeserializeJsonToDictionary(string jsonString)
+    {
+        Dictionary<string, string> stringDictionary = JsonSerializer.Deserialize<Dictionary<string, string>>(jsonString);
+        Dictionary<string, byte[]> byteDictionary = new Dictionary<string, byte[]>();
+        foreach (var kvp in stringDictionary)
+        {
+            byteDictionary.Add(kvp.Key, HexStringToByteArray(kvp.Value));
+        }
+
+        return byteDictionary;
+    }
     private void SetupEncodings()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -85,9 +109,10 @@ public unsafe class Mod : ModBase // <= Do not Remove.
             { Language.SimplifiedChinese, Encoding.Unicode },
             { Language.TraditionalChinese, Encoding.Unicode },
             { Language.Spanish, Encoding.UTF8 },
+            //{ Language.Custom, Encoding.UTF8 },
         };
     }
-
+    public Dictionary<string, byte[]>CustomEncoding;
 
     public Mod(ModContext context)
     {
@@ -181,15 +206,20 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         });
 
         _modLoader.ModLoading += OnModLoading;
-
-        foreach (var mod in _modLoader.GetActiveMods().Where(x => x.Generic.ModDependencies.Contains(_modConfig.ModIcon)))
+        
+        foreach (var mod in _modLoader.GetActiveMods().Where(x => x.Generic.ModDependencies.Contains(_modConfig.ModIcon))){
             AddNamesFromDir(_modLoader.GetDirectoryForModId(mod.Generic.ModId));
+        }
     }
 
-    private void OnModLoading(IModV1 mod, IModConfigV1 config)
+    public void OnModLoading(IModV1 mod, IModConfigV1 config)
     {
         if (config.ModDependencies.Contains(_modConfig.ModId))
+        {
+            AddCustomEncoding(_modLoader.GetDirectoryForModId(config.ModId), "CustomEncoding.json");
             AddNamesFromDir(_modLoader.GetDirectoryForModId(config.ModId));
+        }
+            
     }
 
     private void DumpText()
@@ -205,6 +235,13 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         AddNamesFromDir<Name, string?>(dir, _hardcodedText, "Text.json", WriteGenericName);
         AddNamesFromDir<Name, string?>(dir, _glossaryText, "Glossary.json", WriteGenericName);
     }
+    public void AddCustomEncoding(string dir, string nameFile)
+    {
+        var encPath = Path.Combine(dir, nameFile);
+        if (!File.Exists(encPath)) return;
+        var json = File.ReadAllText(encPath, Encoding.UTF8);
+        CustomEncoding = DeserializeJsonToDictionary(json);
+    }
 
     private void AddNamesFromDir<T1, T2>(string dir, Dictionary<int, nuint[]> namesDict, string nameFile, Action<object, Dictionary<int, nuint[]>, int, int> WriteName)
         where T1 : IName<T2>
@@ -212,7 +249,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         var namesPath = Path.Combine(dir, nameFile);
         if (!File.Exists(namesPath)) return;
 
-        var json = File.ReadAllText(namesPath);
+        var json = File.ReadAllText(namesPath, Encoding.UTF8);
         var names = JsonSerializer.Deserialize<List<T1>>(json);
         if (names == null)
         {
@@ -276,10 +313,45 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         _characterFullNames[id][lang] = fullAddress;
 
     }
+    private byte[] GetBytesCustomEnc(string text)
+    {
+        
+        List<byte> byteList  = new List<byte>();
+
+        // go through each character in the text
+        foreach (char symbol in text)
+        {
+            string key = symbol.ToString();
+
+            // Check if there is a character in the dictionary
+            if (CustomEncoding.ContainsKey(key))
+            {
+                // If there is, add its value to the byte array
+                byteList.AddRange(CustomEncoding[key]);
+            }
+            else
+            {
+                // If not, add the utf-8 encrypted character
+                byteList.AddRange(Encoding.UTF8.GetBytes(key));
+            }
+        }
+        byte[] byteArray = byteList.ToArray();
+        return byteArray;
+    }
 
     private nuint WriteString(string text, Language language)
     {
-        var bytes = _encodings[language].GetBytes(text);
+        
+        byte[] bytes = new byte[0];
+        Utils.LogError(Convert.ToString(CustomEncoding));
+        if (CustomEncoding!=null)
+        {
+            bytes = GetBytesCustomEnc(text);
+        }
+        else
+        {
+            bytes = _encodings[language].GetBytes(text);
+        }
         var address = _memory.Allocate((nuint)bytes.Length).Address;
         _memory.WriteRaw(address, bytes);
         return address;
@@ -388,6 +460,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         German,
         Italian,
         Spanish
+        //Custom
     }
 
     #region Standard Overrides
