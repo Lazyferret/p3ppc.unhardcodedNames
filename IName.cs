@@ -18,4 +18,5 @@ internal interface IName<T>
     public T? German { get; set; }
     public T? Italian { get; set; }
     public T? Spanish { get; set; }
+    //public T? Custom { get; set; }
 }

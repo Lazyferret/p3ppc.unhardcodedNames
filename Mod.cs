@@ -132,8 +132,34 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         Utils.SigScan("E8 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 48 8B C8 0F B6 84 ?? ?? ?? ?? ??", "GetItemName Ptr", address =>
         {
             var funcAddress = Utils.GetGlobalAddress(address + 1);
-            Utils.LogDebug($"Found GetItemName function at 0x{funcAddress:X}");
+            Utils.Log($"Found GetItemName function at 0x{funcAddress:X}");
             _getItemNameHook = _hooks.CreateHook<GetNameDelegate>(GetItemName, (long)funcAddress).Activate();
+            /*
+            //Dump text
+            //nuint* text = (nuint*)Utils.GetGlobalAddress(address + 76); // Couldn't get it working, just hardcode, who cares...
+            //nuint* text = (nuint*)0x14025A090;
+            for (int j = 40; j < 100; j++)
+            {
+                try
+                {
+                //nuint* text = (nuint*)0x14089CA30+j;
+                nuint** text = (nuint**)Utils.GetGlobalAddress(address + j);
+                for (int i = 0; i < 349; i++)
+                {
+                    byte* ptr = (byte*)text[i];
+                    int count = 0;
+                    while (*(ptr + count) != 0)
+                        count++;
+                    var textStr = Encoding.ASCII.GetString(ptr, count);
+                    Utils.Log($"{i} = \"{textStr}\"");
+                }
+                }
+                catch (Exception e)
+                {
+                    Utils.Log(Convert.ToString(j));
+                }
+            }*/
+            
         });
 
         Utils.SigScan("E8 ?? ?? ?? ?? F3 0F 10 0D ?? ?? ?? ?? 8B CF", "GetCharacterFullName Ptr", address =>
@@ -173,36 +199,37 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         Utils.SigScan("48 89 5C 24 ?? 57 48 83 EC 20 8B D9 8B FA 48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 4C 63 05 ?? ?? ?? ??", "HardcodedText", address =>
         {
             _getTextHook = _hooks.CreateHook<GetTextDelegate>(GetText, address).Activate();
-
+            
+            /*
             // Dump text
-            //nuint** text = (nuint**)Utils.GetGlobalAddress(address + 44);
-            //for(int i = 0; i < 142; i++)
-            //{
-            //    byte* ptr = (byte*)text[(int)Language.English][i];
-            //    int count = 0;
-            //    while (*(ptr + count) != 0)
-            //        count++;
-            //    var textStr = Encoding.ASCII.GetString(ptr, count);
-            //    Utils.Log($"{i} = \"{textStr}\"");
-            //}            
+            nuint** text = (nuint**)Utils.GetGlobalAddress(address + 44);
+            for(int i = 0; i < 142; i++)
+            {
+                byte* ptr = (byte*)text[(int)Language.English][i];
+                int count = 0;
+                while (*(ptr + count) != 0)
+                    count++;
+                var textStr = Encoding.ASCII.GetString(ptr, count);
+                Utils.Log($"{i} = \"{textStr}\"");
+            */            
         });
 
         Utils.SigScan("48 89 5C 24 ?? 57 48 83 EC 20 48 63 F9 48 8D 0D ?? ?? ?? ?? 48 63 DA E8 ?? ?? ?? ?? 48 63 05 ?? ?? ?? ??", "GetGlossaryText", address =>
         {
             _getGlossaryTextHook = _hooks.CreateHook<GetTextDelegate>(GetGlossaryText, address).Activate();
-
+            /*
             //Dump text
             //nuint* text = (nuint*)Utils.GetGlobalAddress(address + 76); // Couldn't get it working, just hardcode, who cares...
-            //nuint* text = (nuint*)0x14079c930;
-            //for (int i = 0; i < 349; i++)
-            //{
-            //    byte* ptr = (byte*)text[i];
-            //    int count = 0;
-            //    while (*(ptr + count) != 0)
-            //        count++;
-            //    var textStr = Encoding.ASCII.GetString(ptr, count);
-            //    Utils.Log($"{i} = \"{textStr}\"");
-            //}
+            nuint* text = (nuint*)0x14079c930;
+            for (int i = 0; i < 349; i++)
+            {
+                byte* ptr = (byte*)text[i];
+                int count = 0;
+                while (*(ptr + count) != 0)
+                    count++;
+                var textStr = Encoding.ASCII.GetString(ptr, count);
+                Utils.Log($"{i} = \"{textStr}\"");
+            }*/
         });
 
         _modLoader.ModLoading += OnModLoading;
@@ -343,7 +370,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
     {
         
         byte[] bytes = new byte[0];
-        Utils.LogError(Convert.ToString(CustomEncoding));
+        Utils.Log(Convert.ToString(CustomEncoding));
         if (CustomEncoding!=null)
         {
             bytes = GetBytesCustomEnc(text);
@@ -430,7 +457,8 @@ public unsafe class Mod : ModBase // <= Do not Remove.
 
     private nuint GetGlossaryText(int major, int minor)
     {
-        int id = major + minor;
+        
+        int id = 7*major + minor;
         if (!_glossaryText.TryGetValue(id, out var text))
         {
             return _getGlossaryTextHook.OriginalFunction(major, minor);
@@ -439,7 +467,7 @@ public unsafe class Mod : ModBase // <= Do not Remove.
         var langText = text[(int)*_language];
         if (langText == nuint.Zero)
             return _getGlossaryTextHook.OriginalFunction(major, minor);
-
+        //Utils.Log(langText);
         return langText;
     }
 

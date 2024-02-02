@@ -18,4 +18,5 @@ public class Name : IName<string?>
     public string? German { get; set; }
     public string? Italian { get; set; }
     public string? Spanish { get; set; }
+    public string? Custom { get; set; }
 }

@@ -18,6 +18,7 @@ internal class CharacterName : IName<NameParts?>
     public NameParts? German { get; set; }
     public NameParts? Italian { get; set; }
     public NameParts? Spanish { get; set; }
+    //public NameParts? Custom { get; set; }
 
 }
 
